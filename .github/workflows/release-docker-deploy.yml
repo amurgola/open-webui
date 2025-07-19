@@ -1,5 +1,16 @@
 name: Deploy Docker images on release
 
+# This workflow triggers when a GitHub release is published and builds/deploys
+# multi-platform Docker images to GitHub Container Registry (ghcr.io).
+# 
+# Images built:
+# - Main image: latest, version tags
+# - CUDA image: cuda variants with GPU support  
+# - CUDA 12.6 image: specific CUDA version variant
+# - Ollama image: variant with integrated Ollama
+#
+# All images are built for both linux/amd64 and linux/arm64 platforms.
+
 on:
   release:
     types: [published]
