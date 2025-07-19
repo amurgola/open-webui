@@ -61,6 +61,7 @@
 	import Tooltip from '../common/Tooltip.svelte';
 	import FileItem from '../common/FileItem.svelte';
 	import Image from '../common/Image.svelte';
+	import ImageCropModal from '../common/ImageCropModal.svelte';
 
 	import XMark from '../icons/XMark.svelte';
 	import Headphone from '../icons/Headphone.svelte';
@@ -106,6 +107,11 @@
 	let showInputVariablesModal = false;
 	let inputVariables = {};
 	let inputVariableValues = {};
+
+	// Image crop modal state
+	let showImageCropModal = false;
+	let pendingImageUrl = '';
+	let pendingImageFileName = '';
 
 	$: onChange({
 		prompt,
@@ -153,13 +159,8 @@
 			}
 
 			if (imageUrl) {
-				files = [
-					...files,
-					{
-						type: 'image',
-						url: imageUrl
-					}
-				];
+				// Show crop modal instead of directly adding to files
+				await showImageCropModalForFile(imageUrl, 'clipboard-image.png');
 			}
 
 			text = text.replaceAll('{{CLIPBOARD}}', clipboardText);
@@ -489,8 +490,8 @@
 
 			// Convert the canvas to a Base64 image URL
 			const imageUrl = canvas.toDataURL('image/png');
-			// Add the captured image to the files array to render it
-			files = [...files, { type: 'image', url: imageUrl }];
+			// Show crop modal instead of directly adding to files
+			await showImageCropModalForFile(imageUrl, 'screen-capture.png');
 			// Clean memory: Clear video srcObject
 			video.srcObject = null;
 		} catch (error) {
@@ -601,6 +602,68 @@
 		}
 	};
 
+	// Helper function to show crop modal for images
+	const showImageCropModalForFile = async (imageUrl: string, fileName = '') => {
+		pendingImageUrl = imageUrl;
+		pendingImageFileName = fileName;
+		showImageCropModal = true;
+	};
+
+	// Handler for crop modal accept
+	const handleImageCropAccept = async (event: CustomEvent) => {
+		const { imageUrl, fileName } = event.detail;
+		
+		// Apply compression if needed
+		const compressImageHandler = async (imageUrl: string, settings = {}, config = {}) => {
+			const settingsCompression = settings?.imageCompression ?? false;
+			const configWidth = config?.file?.image_compression?.width ?? null;
+			const configHeight = config?.file?.image_compression?.height ?? null;
+
+			if (!settingsCompression && !configWidth && !configHeight) {
+				return imageUrl;
+			}
+
+			let width = null;
+			let height = null;
+
+			if (settingsCompression) {
+				width = settings?.imageCompressionSize?.width ?? null;
+				height = settings?.imageCompressionSize?.height ?? null;
+			}
+
+			if (configWidth && (width === null || width > configWidth)) {
+				width = configWidth;
+			}
+			if (configHeight && (height === null || height > configHeight)) {
+				height = configHeight;
+			}
+
+			if (width || height) {
+				return await compressImage(imageUrl, width, height);
+			}
+			return imageUrl;
+		};
+
+		const finalImageUrl = await compressImageHandler(imageUrl, $settings, $config);
+
+		files = [
+			...files,
+			{
+				type: 'image',
+				url: finalImageUrl
+			}
+		];
+
+		showImageCropModal = false;
+	};
+
+	// Handler for crop modal cancel
+	const handleImageCropCancel = () => {
+		showImageCropModal = false;
+		pendingImageUrl = '';
+		pendingImageFileName = '';
+	};
+
 	const inputFilesHandler = async (inputFiles) => {
 		console.log('Input files handler called with:', inputFiles);
 
@@ -684,17 +747,10 @@
 
 				let reader = new FileReader();
 				reader.onload = async (event) => {
-					let imageUrl = event.target.result;
-
-					imageUrl = await compressImageHandler(imageUrl, $settings, $config);
-
-					files = [
-						...files,
-						{
-							type: 'image',
-							url: `${imageUrl}`
-						}
-					];
+					const result = event.target?.result;
+					if (typeof result === 'string') {
+						await showImageCropModalForFile(result, file.name);
+					}
 				};
 				reader.readAsDataURL(
 					file['type'] === 'image/heic'
@@ -1268,14 +1324,12 @@
 																const blob = item.getAsFile();
 																const reader = new FileReader();
 
-																reader.onload = function (e) {
-																	files = [
-																		...files,
-																		{
-																			type: 'image',
-																			url: `${e.target.result}`
-																		}
-																	];
+																reader.onload = async function (e) {
+																	// Show crop modal instead of directly adding to files
+																	const result = e.target?.result;
+																	if (typeof result === 'string') {
+																		await showImageCropModalForFile(result, 'pasted-image.png');
+																	}
 																};
 
 																reader.readAsDataURL(blob);
@@ -1508,14 +1562,12 @@
 															const blob = item.getAsFile();
 															const reader = new FileReader();
 
-															reader.onload = function (e) {
-																files = [
-																	...files,
-																	{
-																		type: 'image',
-																		url: `${e.target.result}`
-																	}
-																];
+															reader.onload = async function (e) {
+																// Show crop modal instead of directly adding to files
+																const result = e.target?.result;
+																if (typeof result === 'string') {
+																	await showImageCropModalForFile(result, 'pasted-image.png');
+																}
 															};
 
 															reader.readAsDataURL(blob);
@@ -1931,3 +1983,11 @@
 		</div>
 	</div>
 {/if}
+
+<ImageCropModal
+	bind:show={showImageCropModal}
+	imageUrl={pendingImageUrl}
+	fileName={pendingImageFileName}
+	on:accept={handleImageCropAccept}
+	on:cancel={handleImageCropCancel}
+/>
