@@ -1,3 +1,4 @@
+<svelte:window on:mousemove={onMouseMove} on:mouseup={onMouseUp} />
 <script lang="ts">
 	import CodeExecutionModal from './CodeExecutionModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
