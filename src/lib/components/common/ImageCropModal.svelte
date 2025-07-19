@@ -114,11 +114,24 @@
 		ctx.fillRect(cropX + cropWidth - handleSize/2, cropY + cropHeight - handleSize/2, handleSize, handleSize);
 	};
 
-	const getMousePos = (e: MouseEvent) => {
+	const getEventPos = (e: MouseEvent | TouchEvent) => {
 		const rect = canvasElement!.getBoundingClientRect();
+		let clientX: number;
+		let clientY: number;
+		
+		if (e instanceof MouseEvent) {
+			clientX = e.clientX;
+			clientY = e.clientY;
+		} else {
+			// TouchEvent
+			const touch = e.touches[0] || e.changedTouches[0];
+			clientX = touch.clientX;
+			clientY = touch.clientY;
+		}
+		
 		return {
-			x: e.clientX - rect.left,
-			y: e.clientY - rect.top
+			x: clientX - rect.left,
+			y: clientY - rect.top
 		};
 	};
 
@@ -142,8 +155,9 @@
 			   mouseY >= cropY && mouseY <= cropY + cropHeight;
 	};
 
-	const onMouseDown = (e: MouseEvent) => {
-		const { x, y } = getMousePos(e);
+	const onPointerDown = (e: MouseEvent | TouchEvent) => {
+		e.preventDefault();
+		const { x, y } = getEventPos(e);
 		startX = x;
 		startY = y;
 		originalCropX = cropX;
@@ -158,10 +172,11 @@
 		}
 	};
 
-	const onMouseMove = (e: MouseEvent) => {
+	const onPointerMove = (e: MouseEvent | TouchEvent) => {
 		if (!isDragging && !isResizing) return;
 		
-		const { x, y } = getMousePos(e);
+		e.preventDefault();
+		const { x, y } = getEventPos(e);
 		const deltaX = x - startX;
 		const deltaY = y - startY;
 		
@@ -180,13 +195,19 @@
 		redrawCanvas();
 	};
 
-	const onMouseUp = () => {
+	const onPointerUp = (e: MouseEvent | TouchEvent) => {
+		e.preventDefault();
 		isDragging = false;
 		isResizing = false;
 	};
 
-	const rotate = () => {
+	const rotate90 = () => {
 		rotation = (rotation + 90) % 360;
+		redrawCanvas();
+	};
+
+	const setRotation = (newRotation: number) => {
+		rotation = ((newRotation % 360) + 360) % 360; // Ensure positive angle between 0-359
 		redrawCanvas();
 	};
 
@@ -263,17 +284,29 @@
 	}
 
 	onMount(() => {
-		// Add mouse event listeners to canvas
-		return () => {
-			document.removeEventListener('mousemove', onMouseMove);
-			document.removeEventListener('mouseup', onMouseUp);
+		// Add global pointer event listeners for better mobile support
+		const addPointerListeners = () => {
+			document.addEventListener('mousemove', onPointerMove);
+			document.addEventListener('mouseup', onPointerUp);
+			document.addEventListener('touchmove', onPointerMove, { passive: false });
+			document.addEventListener('touchend', onPointerUp);
 		};
+		
+		const removePointerListeners = () => {
+			document.removeEventListener('mousemove', onPointerMove);
+			document.removeEventListener('mouseup', onPointerUp);
+			document.removeEventListener('touchmove', onPointerMove);
+			document.removeEventListener('touchend', onPointerUp);
+		};
+		
+		addPointerListeners();
+		
+		return removePointerListeners;
 	});
 </script>
 
 {#if show}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 	<div
 		bind:this={modalElement}
 		aria-modal="true"
@@ -286,9 +319,11 @@
 			}
 		}}
 	>
+		<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
 		<div
 			class="m-auto max-w-full w-[50rem] mx-2 shadow-3xl min-h-fit bg-white dark:bg-gray-900 rounded-2xl"
 			in:flyAndScale
+			role="dialog"
 			on:mousedown={(e) => {
 				e.stopPropagation();
 			}}
@@ -312,28 +347,53 @@
 					<div class="relative">
 						<canvas
 							bind:this={canvasElement}
-							on:mousedown={onMouseDown}
-							on:mousemove={onMouseMove}
-							on:mouseup={onMouseUp}
-							class="border border-gray-300 dark:border-gray-600 cursor-crosshair max-w-full"
+							on:mousedown={onPointerDown}
+							on:touchstart={onPointerDown}
+							class="border border-gray-300 dark:border-gray-600 cursor-crosshair max-w-full touch-none"
+							style="touch-action: none;"
 						/>
 						<img bind:this={imageElement} class="hidden" alt="Source" />
 					</div>
 
-					<div class="flex space-x-3">
-						<button
-							on:click={rotate}
-							class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white rounded-lg transition flex items-center space-x-2"
-						>
-							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-							</svg>
-							<span>Rotate 90°</span>
-						</button>
+					<div class="flex flex-col space-y-3">
+						<div class="flex space-x-3">
+							<button
+								on:click={rotate90}
+								class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-white rounded-lg transition flex items-center space-x-2"
+							>
+								<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+								</svg>
+								<span>Rotate 90°</span>
+							</button>
+						</div>
+						
+						<div class="flex items-center space-x-3">
+							<label for="rotation-input" class="text-sm font-medium text-gray-700 dark:text-gray-300">Fine Rotation:</label>
+							<input
+								type="range"
+								min="0"
+								max="359"
+								bind:value={rotation}
+								on:input={(e) => setRotation(Number(e.target.value))}
+								class="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
+								aria-label="Rotation slider"
+							/>
+							<input
+								id="rotation-input"
+								type="number"
+								min="0"
+								max="359"
+								bind:value={rotation}
+								on:input={(e) => setRotation(Number(e.target.value))}
+								class="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+							/>
+							<span class="text-sm text-gray-600 dark:text-gray-400">°</span>
+						</div>
 					</div>
 
 					<div class="text-sm text-gray-600 dark:text-gray-400 text-center">
-						Drag to move crop area • Drag corners to resize • Click rotate to rotate 90°
+						Drag to move crop area • Drag corners to resize • Use controls to rotate as needed
 					</div>
 				</div>
 			</div>
@@ -357,8 +417,3 @@
 		</div>
 	</div>
 {/if}
-
-<svelte:window
-	on:mousemove={onMouseMove}
-	on:mouseup={onMouseUp}
-/>
