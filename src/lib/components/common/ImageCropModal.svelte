@@ -18,6 +18,7 @@
 	// Crop state
 	let isDragging = false;
 	let isResizing = false;
+	let resizeCorner = ''; // Track which corner is being resized
 	let cropX = 50;
 	let cropY = 50;
 	let cropWidth = 200;
@@ -156,9 +157,15 @@
 			clientY = touch.clientY;
 		}
 		
-		// Get canvas-relative coordinates
+		// Get canvas-relative coordinates and account for CSS scaling
 		let x = clientX - rect.left;
 		let y = clientY - rect.top;
+		
+		// Scale coordinates from display size to canvas internal size
+		const scaleX = canvasElement!.width / rect.width;
+		const scaleY = canvasElement!.height / rect.height;
+		x *= scaleX;
+		y *= scaleY;
 		
 		// Transform coordinates based on rotation
 		const centerX = canvasElement!.width / 2;
@@ -180,22 +187,26 @@
 		};
 	};
 
-	const isInResizeHandle = (mouseX: number, mouseY: number) => {
+	const getResizeHandle = (mouseX: number, mouseY: number) => {
 		// Use larger touch targets for mobile (24px vs 8px for desktop)
 		const isMobile = 'ontouchstart' in window;
 		const handleSize = isMobile ? 24 : 8;
 		const handles = [
-			{ x: cropX, y: cropY },
-			{ x: cropX + cropWidth, y: cropY },
-			{ x: cropX, y: cropY + cropHeight },
-			{ x: cropX + cropWidth, y: cropY + cropHeight }
+			{ x: cropX, y: cropY, corner: 'top-left' },
+			{ x: cropX + cropWidth, y: cropY, corner: 'top-right' },
+			{ x: cropX, y: cropY + cropHeight, corner: 'bottom-left' },
+			{ x: cropX + cropWidth, y: cropY + cropHeight, corner: 'bottom-right' }
 		];
 		
-		return handles.some(handle => 
-			mouseX >= handle.x - handleSize/2 && mouseX <= handle.x + handleSize/2 &&
-			mouseY >= handle.y - handleSize/2 && mouseY <= handle.y + handleSize/2
-		);
+		for (const handle of handles) {
+			if (mouseX >= handle.x - handleSize/2 && mouseX <= handle.x + handleSize/2 &&
+				mouseY >= handle.y - handleSize/2 && mouseY <= handle.y + handleSize/2) {
+				return handle.corner;
+			}
+		}
+		return null;
 	};
+
 
 	const isInCropArea = (mouseX: number, mouseY: number) => {
 		return mouseX >= cropX && mouseX <= cropX + cropWidth &&
@@ -212,12 +223,18 @@
 		originalCropWidth = cropWidth;
 		originalCropHeight = cropHeight;
 		
-		if (isInResizeHandle(x, y)) {
+		const handle = getResizeHandle(x, y);
+		if (handle) {
+			console.log('Resize handle detected:', handle, 'at coordinates:', x, y);
 			isResizing = true;
+			resizeCorner = handle;
 			addPointerListeners();
 		} else if (isInCropArea(x, y)) {
+			console.log('Crop area drag detected at coordinates:', x, y);
 			isDragging = true;
 			addPointerListeners();
+		} else {
+			console.log('No interaction detected at coordinates:', x, y, 'crop area:', cropX, cropY, cropWidth, cropHeight);
 		}
 	};
 
@@ -233,12 +250,55 @@
 			cropX = Math.max(0, Math.min(displayWidth - cropWidth, originalCropX + deltaX));
 			cropY = Math.max(0, Math.min(displayHeight - cropHeight, originalCropY + deltaY));
 		} else if (isResizing) {
-			// Simple resize from bottom-right corner
-			const newWidth = Math.max(50, originalCropWidth + deltaX);
-			const newHeight = Math.max(50, originalCropHeight + deltaY);
+			// Handle different resize corners
+			const minSize = 50;
 			
-			cropWidth = Math.min(newWidth, displayWidth - cropX);
-			cropHeight = Math.min(newHeight, displayHeight - cropY);
+			switch (resizeCorner) {
+				case 'top-left': {
+					const newLeftX = Math.max(0, originalCropX + deltaX);
+					const newTopY = Math.max(0, originalCropY + deltaY);
+					const newRightX = originalCropX + originalCropWidth;
+					const newBottomY = originalCropY + originalCropHeight;
+					
+					cropX = newLeftX;
+					cropY = newTopY;
+					cropWidth = Math.max(minSize, newRightX - newLeftX);
+					cropHeight = Math.max(minSize, newBottomY - newTopY);
+					break;
+				}
+					
+				case 'top-right': {
+					const newTopY2 = Math.max(0, originalCropY + deltaY);
+					const newWidth2 = Math.max(minSize, originalCropWidth + deltaX);
+					const newHeight2 = Math.max(minSize, originalCropHeight - deltaY);
+					
+					cropY = newTopY2;
+					cropWidth = Math.min(newWidth2, displayWidth - cropX);
+					cropHeight = newHeight2;
+					break;
+				}
+					
+				case 'bottom-left': {
+					const newLeftX3 = Math.max(0, originalCropX + deltaX);
+					const newWidth3 = Math.max(minSize, originalCropWidth - deltaX);
+					const newHeight3 = Math.max(minSize, originalCropHeight + deltaY);
+					
+					cropX = newLeftX3;
+					cropWidth = newWidth3;
+					cropHeight = Math.min(newHeight3, displayHeight - cropY);
+					break;
+				}
+					
+				case 'bottom-right':
+				default: {
+					const newWidth4 = Math.max(minSize, originalCropWidth + deltaX);
+					const newHeight4 = Math.max(minSize, originalCropHeight + deltaY);
+					
+					cropWidth = Math.min(newWidth4, displayWidth - cropX);
+					cropHeight = Math.min(newHeight4, displayHeight - cropY);
+					break;
+				}
+			}
 		}
 		
 		redrawCanvas();
@@ -248,6 +308,7 @@
 		e.preventDefault();
 		isDragging = false;
 		isResizing = false;
+		resizeCorner = '';
 		removePointerListeners();
 	};
 
@@ -363,6 +424,7 @@
 		removePointerListeners();
 		isDragging = false;
 		isResizing = false;
+		resizeCorner = '';
 		document.body.removeChild(modalElement);
 		document.body.style.overflow = 'unset';
 	}
