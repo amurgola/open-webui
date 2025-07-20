@@ -105,17 +105,37 @@
 		ctx.strokeRect(cropX - displayWidth / 2, cropY - displayHeight / 2, cropWidth, cropHeight);
 		
 		// Draw resize handles
-		const handleSize = 8;
+		const isMobile = 'ontouchstart' in window;
+		const handleSize = isMobile ? 12 : 8; // Slightly larger visual handles on mobile
 		ctx.fillStyle = '#3b82f6';
 		
 		const adjustedCropX = cropX - displayWidth / 2;
 		const adjustedCropY = cropY - displayHeight / 2;
 		
-		// Corner handles
-		ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
+		// Corner handles - make them circles on mobile for better visibility
+		if (isMobile) {
+			ctx.beginPath();
+			ctx.arc(adjustedCropX, adjustedCropY, handleSize/2, 0, 2 * Math.PI);
+			ctx.fill();
+			
+			ctx.beginPath();
+			ctx.arc(adjustedCropX + cropWidth, adjustedCropY, handleSize/2, 0, 2 * Math.PI);
+			ctx.fill();
+			
+			ctx.beginPath();
+			ctx.arc(adjustedCropX, adjustedCropY + cropHeight, handleSize/2, 0, 2 * Math.PI);
+			ctx.fill();
+			
+			ctx.beginPath();
+			ctx.arc(adjustedCropX + cropWidth, adjustedCropY + cropHeight, handleSize/2, 0, 2 * Math.PI);
+			ctx.fill();
+		} else {
+			// Square handles for desktop
+			ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
+			ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
+			ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
+			ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
+		}
 		
 		// Restore context
 		ctx.restore();
@@ -161,7 +181,9 @@
 	};
 
 	const isInResizeHandle = (mouseX: number, mouseY: number) => {
-		const handleSize = 8;
+		// Use larger touch targets for mobile (24px vs 8px for desktop)
+		const isMobile = 'ontouchstart' in window;
+		const handleSize = isMobile ? 24 : 8;
 		const handles = [
 			{ x: cropX, y: cropY },
 			{ x: cropX + cropWidth, y: cropY },
@@ -449,7 +471,11 @@
 					</div>
 
 					<div class="text-sm text-gray-600 dark:text-gray-400 text-center">
-						Drag to move crop area • Drag corners to resize • Use controls to rotate as needed
+						{#if 'ontouchstart' in window}
+							Tap and drag to move crop area • Tap and drag blue circles to resize • Use controls to rotate
+						{:else}
+							Drag to move crop area • Drag corners to resize • Use controls to rotate as needed
+						{/if}
 					</div>
 				</div>
 			</div>
