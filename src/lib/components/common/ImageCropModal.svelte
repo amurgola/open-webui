@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 	import { fade } from 'svelte/transition';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import * as FocusTrap from 'focus-trap';
@@ -71,47 +71,54 @@
 		if (!canvasElement || !imageElement) return;
 		
 		const ctx = canvasElement.getContext('2d');
-		canvasElement.width = displayWidth;
-		canvasElement.height = displayHeight;
 		
-		ctx.clearRect(0, 0, displayWidth, displayHeight);
+		// Calculate canvas size to accommodate rotated image
+		const rad = Math.abs(rotation * Math.PI / 180);
+		const sin = Math.abs(Math.sin(rad));
+		const cos = Math.abs(Math.cos(rad));
+		canvasElement.width = Math.ceil(displayWidth * cos + displayHeight * sin);
+		canvasElement.height = Math.ceil(displayWidth * sin + displayHeight * cos);
+		
+		ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 		
 		// Save context for rotation
 		ctx.save();
 		
 		// Apply rotation around center
-		ctx.translate(displayWidth / 2, displayHeight / 2);
+		ctx.translate(canvasElement.width / 2, canvasElement.height / 2);
 		ctx.rotate((rotation * Math.PI) / 180);
-		ctx.translate(-displayWidth / 2, -displayHeight / 2);
 		
-		// Draw image
-		ctx.drawImage(imageElement, 0, 0, displayWidth, displayHeight);
+		// Draw image centered
+		ctx.drawImage(imageElement, -displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
 		
-		// Restore context
-		ctx.restore();
-		
-		// Draw crop overlay
+		// Draw crop overlay while rotated
 		ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-		ctx.fillRect(0, 0, displayWidth, displayHeight);
+		ctx.fillRect(-displayWidth / 2, -displayHeight / 2, displayWidth, displayHeight);
 		
-		// Clear crop area
-		ctx.clearRect(cropX, cropY, cropWidth, cropHeight);
+		// Clear crop area (translate to rotated coordinates)
+		ctx.clearRect(cropX - displayWidth / 2, cropY - displayHeight / 2, cropWidth, cropHeight);
 		
 		// Draw crop border
 		ctx.strokeStyle = '#3b82f6';
 		ctx.lineWidth = 2;
 		ctx.setLineDash([]);
-		ctx.strokeRect(cropX, cropY, cropWidth, cropHeight);
+		ctx.strokeRect(cropX - displayWidth / 2, cropY - displayHeight / 2, cropWidth, cropHeight);
 		
 		// Draw resize handles
 		const handleSize = 8;
 		ctx.fillStyle = '#3b82f6';
 		
+		const adjustedCropX = cropX - displayWidth / 2;
+		const adjustedCropY = cropY - displayHeight / 2;
+		
 		// Corner handles
-		ctx.fillRect(cropX - handleSize/2, cropY - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(cropX + cropWidth - handleSize/2, cropY - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(cropX - handleSize/2, cropY + cropHeight - handleSize/2, handleSize, handleSize);
-		ctx.fillRect(cropX + cropWidth - handleSize/2, cropY + cropHeight - handleSize/2, handleSize, handleSize);
+		ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
+		ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY - handleSize/2, handleSize, handleSize);
+		ctx.fillRect(adjustedCropX - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
+		ctx.fillRect(adjustedCropX + cropWidth - handleSize/2, adjustedCropY + cropHeight - handleSize/2, handleSize, handleSize);
+		
+		// Restore context
+		ctx.restore();
 	};
 
 	const getEventPos = (e: MouseEvent | TouchEvent) => {
@@ -129,9 +136,27 @@
 			clientY = touch.clientY;
 		}
 		
+		// Get canvas-relative coordinates
+		let x = clientX - rect.left;
+		let y = clientY - rect.top;
+		
+		// Transform coordinates based on rotation
+		const centerX = canvasElement!.width / 2;
+		const centerY = canvasElement!.height / 2;
+		
+		// Translate to center
+		x -= centerX;
+		y -= centerY;
+		
+		// Rotate backwards
+		const angle = -rotation * Math.PI / 180;
+		const rotatedX = x * Math.cos(angle) - y * Math.sin(angle);
+		const rotatedY = x * Math.sin(angle) + y * Math.cos(angle);
+		
+		// Translate back and adjust for display coordinates
 		return {
-			x: clientX - rect.left,
-			y: clientY - rect.top
+			x: rotatedX + displayWidth / 2,
+			y: rotatedY + displayHeight / 2
 		};
 	};
 
@@ -167,8 +192,10 @@
 		
 		if (isInResizeHandle(x, y)) {
 			isResizing = true;
+			addPointerListeners();
 		} else if (isInCropArea(x, y)) {
 			isDragging = true;
+			addPointerListeners();
 		}
 	};
 
@@ -199,6 +226,7 @@
 		e.preventDefault();
 		isDragging = false;
 		isResizing = false;
+		removePointerListeners();
 	};
 
 	const rotate90 = () => {
@@ -226,27 +254,57 @@
 		const actualCropWidth = (cropWidth / scale);
 		const actualCropHeight = (cropHeight / scale);
 		
+		// Create a temporary canvas to handle rotation
+		const tempCanvas = document.createElement('canvas');
+		const tempCtx = tempCanvas.getContext('2d');
+		
+		if (!tempCtx) return null;
+		
+		// Calculate canvas size to accommodate rotated image
+		const tempRad = Math.abs(rotation * Math.PI / 180);
+		const tempSin = Math.abs(Math.sin(tempRad));
+		const tempCos = Math.abs(Math.cos(tempRad));
+		tempCanvas.width = Math.ceil(imageWidth * tempCos + imageHeight * tempSin);
+		tempCanvas.height = Math.ceil(imageWidth * tempSin + imageHeight * tempCos);
+		
+		// Draw rotated image on temp canvas
+		tempCtx.save();
+		tempCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+		tempCtx.rotate((rotation * Math.PI) / 180);
+		tempCtx.drawImage(imageElement, -imageWidth / 2, -imageHeight / 2);
+		tempCtx.restore();
+		
+		// Now crop from the rotated image
 		outputCanvas.width = actualCropWidth;
 		outputCanvas.height = actualCropHeight;
 		
-		// Apply rotation if needed
-		if (rotation !== 0) {
-			outputCtx.save();
-			outputCtx.translate(actualCropWidth / 2, actualCropHeight / 2);
-			outputCtx.rotate((rotation * Math.PI) / 180);
-			outputCtx.translate(-actualCropWidth / 2, -actualCropHeight / 2);
-		}
+		// For arbitrary rotation angles, we need to calculate the transformed coordinates
+		const rad = rotation * Math.PI / 180;
+		const cos = Math.cos(rad);
+		const sin = Math.sin(rad);
 		
-		// Draw the cropped portion
+		// Center of the original image
+		const centerX = imageWidth / 2;
+		const centerY = imageHeight / 2;
+		
+		// Translate crop coordinates to center-based
+		const cropCenterX = actualCropX + actualCropWidth / 2 - centerX;
+		const cropCenterY = actualCropY + actualCropHeight / 2 - centerY;
+		
+		// Rotate the crop center
+		const rotatedCropCenterX = cropCenterX * cos - cropCenterY * sin;
+		const rotatedCropCenterY = cropCenterX * sin + cropCenterY * cos;
+		
+		// Translate back to canvas coordinates
+		const sourceCropX = rotatedCropCenterX + tempCanvas.width / 2 - actualCropWidth / 2;
+		const sourceCropY = rotatedCropCenterY + tempCanvas.height / 2 - actualCropHeight / 2;
+		
+		// Draw the cropped portion from rotated image
 		outputCtx.drawImage(
-			imageElement,
-			actualCropX, actualCropY, actualCropWidth, actualCropHeight,
+			tempCanvas,
+			sourceCropX, sourceCropY, actualCropWidth, actualCropHeight,
 			0, 0, actualCropWidth, actualCropHeight
 		);
-		
-		if (rotation !== 0) {
-			outputCtx.restore();
-		}
 		
 		return outputCanvas.toDataURL('image/png');
 	};
@@ -279,30 +337,28 @@
 			focusTrap.deactivate();
 		}
 		window.removeEventListener('keydown', handleKeyDown);
+		// Ensure all pointer listeners are removed
+		removePointerListeners();
+		isDragging = false;
+		isResizing = false;
 		document.body.removeChild(modalElement);
 		document.body.style.overflow = 'unset';
 	}
 
-	onMount(() => {
-		// Add global pointer event listeners for better mobile support
-		const addPointerListeners = () => {
-			document.addEventListener('mousemove', onPointerMove);
-			document.addEventListener('mouseup', onPointerUp);
-			document.addEventListener('touchmove', onPointerMove, { passive: false });
-			document.addEventListener('touchend', onPointerUp);
-		};
-		
-		const removePointerListeners = () => {
-			document.removeEventListener('mousemove', onPointerMove);
-			document.removeEventListener('mouseup', onPointerUp);
-			document.removeEventListener('touchmove', onPointerMove);
-			document.removeEventListener('touchend', onPointerUp);
-		};
-		
-		addPointerListeners();
-		
-		return removePointerListeners;
-	});
+	// Add/remove global listeners only when actively dragging/resizing
+	const addPointerListeners = () => {
+		document.addEventListener('mousemove', onPointerMove);
+		document.addEventListener('mouseup', onPointerUp);
+		document.addEventListener('touchmove', onPointerMove, { passive: false });
+		document.addEventListener('touchend', onPointerUp);
+	};
+	
+	const removePointerListeners = () => {
+		document.removeEventListener('mousemove', onPointerMove);
+		document.removeEventListener('mouseup', onPointerUp);
+		document.removeEventListener('touchmove', onPointerMove);
+		document.removeEventListener('touchend', onPointerUp);
+	};
 </script>
 
 {#if show}
